@@ -35,8 +35,12 @@ if (-not $SkipPush) {
         git tag -d $tag
     }
 
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     gh release view $tag 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    $exists = ($LASTEXITCODE -eq 0)
+    $ErrorActionPreference = $prev
+    if ($exists) {
         Write-Warning "Release $tag already exists on GitHub."
         $choice = Read-Host "Delete and recreate? (y/n)"
         if ($choice -ne "y") { Write-Host "Aborted."; exit 0 }
