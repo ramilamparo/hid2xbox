@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -49,6 +51,12 @@ type tickMsg struct {
 type model struct {
 	screen     tuiScreen
 	prereq     prereqStatus
+
+	// Prereq screen state
+	downloading  bool
+	downloadDone bool
+	downloadErr  string
+
 	joysticks  []joystick.Info
 	cursor     int
 	err        error
@@ -108,6 +116,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
+	case prereqMsg:
+		m.downloading = false
+		m.downloadDone = true
+		if msg.err != "" {
+			m.downloadErr = msg.err
+		} else {
+			m.prereq.ViGEmClientOK = true
+			m.prereq.ViGEmClientPath = filepath.Join(filepath.Dir(m.prereq.ViGEmClientPath), vigemClientDLL)
+		}
+		return m, nil
 	case tickMsg:
 		if m.screen == screenDiscover {
 			m.axes = msg.axes
@@ -182,7 +200,23 @@ func (m *model) View() string {
 // --- Prereq screen ---
 
 func (m *model) prereqUpdate(key string) (tea.Model, tea.Cmd) {
+	if m.downloading {
+		return m, nil
+	}
 	switch key {
+	case "d":
+		if !m.prereq.ViGEmClientOK {
+			m.downloading = true
+			return m, func() tea.Msg {
+				exe, _ := os.Executable()
+				dir := filepath.Dir(exe)
+				_, err := downloadViGEmClient(dir)
+				if err != nil {
+					return prereqMsg{err: err.Error()}
+				}
+				return prereqMsg{ok: true}
+			}
+		}
 	case "q":
 		m.quitting = true
 		return m, tea.Quit
@@ -191,6 +225,11 @@ func (m *model) prereqUpdate(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, nil
+}
+
+type prereqMsg struct {
+	ok  bool
+	err string
 }
 
 func (m *model) prereqView() string {
@@ -214,13 +253,33 @@ func (m *model) prereqView() string {
 	if m.prereq.ViGEmClientOK {
 		b.WriteString(fmt.Sprintf("  [OK]  ViGEmClient.dll (%s)\n", m.prereq.ViGEmClientPath))
 	} else {
+	if m.prereq.ViGEmClientOK {
+		b.WriteString(fmt.Sprintf("  [OK]  ViGEmClient.dll (%s)\n", m.prereq.ViGEmClientPath))
+	} else if m.downloadDone {
+		if m.downloadErr != "" {
+			b.WriteString(fmt.Sprintf("  [!!]  ViGEmClient.dll — download failed: %s\n", m.downloadErr))
+		} else {
+			b.WriteString(fmt.Sprintf("  [OK]  ViGEmClient.dll — downloaded to %s\n", m.prereq.ViGEmClientPath))
+		}
+	} else if m.downloading {
+		b.WriteString("  [..]  ViGEmClient.dll — downloading...\n")
+	} else {
 		b.WriteString("  [!!]  ViGEmClient.dll — not found\n")
-		b.WriteString(fmt.Sprintf("        Copy it next to hid2xbox.exe (%s)\n", m.prereq.ViGEmClientPath))
-		b.WriteString("        The DLL is included in the repo and release archive.\n")
+		b.WriteString(fmt.Sprintf("        Expected: %s\n", m.prereq.ViGEmClientPath))
+	}
 	}
 
 	b.WriteString("\n")
-	b.WriteString("  [c] continue  [q] quit\n")
+	if m.downloading {
+		b.WriteString("  Downloading, please wait...\n")
+	} else if m.prereq.ViGEmBusOK && m.prereq.ViGEmClientOK {
+		b.WriteString("  [enter] continue  [q] quit\n")
+	} else {
+		if !m.prereq.ViGEmClientOK {
+			b.WriteString("  [d] download ViGEmClient.dll  ")
+		}
+		b.WriteString("  [c] continue anyway  [q] quit\n")
+	}
 	return b.String()
 }
 

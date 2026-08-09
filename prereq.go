@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 
@@ -64,4 +67,38 @@ func findInPath(filename string) string {
 		}
 	}
 	return ""
+}
+
+// downloadViGEmClient fetches ViGEmClient.dll from our repo and places it next to the exe.
+func downloadViGEmClient(targetDir string) (string, error) {
+	target := filepath.Join(targetDir, vigemClientDLL)
+	url := "https://raw.githubusercontent.com/ramilamparo/hid2xbox/master/ViGEmClient.dll"
+
+	fmt.Printf("Downloading %s...\n", vigemClientDLL)
+	if err := downloadFile(url, target); err != nil {
+		return "", fmt.Errorf("download failed: %w", err)
+	}
+	fmt.Printf("  saved to %s\n", target)
+	return target, nil
+}
+
+func downloadFile(url, target string) error {
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+
+	f, err := os.Create(target)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	_, err = io.Copy(f, resp.Body)
+	return err
 }
