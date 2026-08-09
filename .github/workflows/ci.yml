@@ -3,20 +3,10 @@ name: ci
 on:
   push:
     branches: [master]
-    tags: ["v*"]
   pull_request:
     branches: [master]
 
 jobs:
-  test-portable:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.23"
-      - run: go test -v -count=1 -run "Test(Config|Normalize|Norm|Button|Contain)" ./...
-
   test-windows:
     runs-on: windows-latest
     steps:
@@ -24,39 +14,4 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.23"
-      - run: go test -v -count=1 -run "TestTUI" ./...
-
-  build:
-    needs: [test-portable, test-windows]
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.23"
-      - name: Build
-        run: go build -o hid2xbox.exe -ldflags="-s -w" .
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: hid2xbox
-          path: hid2xbox.exe
-
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.23"
-      - name: Build
-        run: go build -o hid2xbox.exe -ldflags="-s -w" .
-      - name: Create Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            hid2xbox.exe
-            ViGEmClient.dll
-          generate_release_notes: true
+      - run: go test -v -count=1 ./...

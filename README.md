@@ -13,21 +13,25 @@ Use case: your Arduino Leonardo handbrake is detected by Windows but games don't
 
 ### Prebuilt (recommended)
 
-Download `hid2xbox.exe` from [releases](https://github.com/ramilamparo/hid2xbox/releases). Place `ViGEmClient.dll` in the same folder.
+Download `hid2xbox.exe` and `ViGEmClient.dll` from [releases](https://github.com/ramilamparo/hid2xbox/releases). Place both in the same folder.
 
 ### Build from source
 
 ```powershell
-# Clone and build
 git clone https://github.com/ramilamparo/hid2xbox.git
 cd hid2xbox
 go build -o hid2xbox.exe .
 
-# Or install to %GOPATH%\bin
+# Install to %GOPATH%\bin (requires Go 1.22+)
 go install github.com/ramilamparo/hid2xbox@latest
 ```
 
-Requires Go 1.22+.
+### Create a release locally
+
+```powershell
+.\release.ps1 -Version 0.0.2    # builds, packages, optionally pushes to GitHub
+.\release.ps1 -DryRun            # build and package only, no GitHub push
+```
 
 ## Quick Start
 
