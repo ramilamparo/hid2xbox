@@ -243,13 +243,6 @@ func (m *model) prereqView() string {
 		b.WriteString("        Download: https://github.com/nefarius/ViGEmBus/releases\n")
 	}
 
-	if m.prereq.HidHideOK {
-		b.WriteString("  [OK]  HidHide driver\n")
-	} else {
-		b.WriteString("  [--]  HidHide driver — recommended (prevents double-input)\n")
-		b.WriteString("        Download: https://github.com/nefarius/HidHide/releases\n")
-	}
-
 	if m.prereq.ViGEmClientOK {
 		b.WriteString(fmt.Sprintf("  [OK]  ViGEmClient.dll (%s)\n", m.prereq.ViGEmClientPath))
 	} else {

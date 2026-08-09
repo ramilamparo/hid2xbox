@@ -16,7 +16,6 @@ const vigemClientDLL = "ViGEmClient.dll"
 type prereqStatus struct {
 	ViGEmBusOK      bool
 	ViGEmClientOK   bool
-	HidHideOK       bool
 	ViGEmClientPath string
 }
 
@@ -30,14 +29,6 @@ func detectPrereqs() prereqStatus {
 	if err == nil {
 		k.Close()
 		s.ViGEmBusOK = true
-	}
-
-	// HidHide: check registry for the kernel service (recommended, not required).
-	k2, err := registry.OpenKey(registry.LOCAL_MACHINE,
-		`SYSTEM\CurrentControlSet\Services\HidHide`, registry.QUERY_VALUE)
-	if err == nil {
-		k2.Close()
-		s.HidHideOK = true
 	}
 
 	// ViGEmClient.dll: check next to executable, then PATH.

@@ -8,7 +8,6 @@ Use case: your Arduino Leonardo handbrake is detected by Windows but games don't
 
 1. **[ViGEmBus](https://github.com/nefarius/ViGEmBus/releases)** — virtual gamepad driver. Install once.
 2. **[ViGEmClient.dll](https://github.com/nefarius/ViGEmClient)** — drop next to `hid2xbox.exe`, or in `PATH`.
-3. **[HidHide](https://github.com/nefarius/HidHide)** *(recommended)* — hides the physical device from games so they only see the virtual Xbox controller. Without it, games receive double input.
 
 ## Install
 
@@ -52,16 +51,6 @@ This launches an interactive TUI:
 ```
 
 Press `Ctrl+C` to stop. The virtual Xbox controller disconnects cleanly.
-
-### 3. Prevent double input (one-time setup)
-
-Games see both the physical Arduino *and* the virtual Xbox controller. Install [HidHide](https://github.com/nefarius/HidHide), open HidHide Configuration Client, and:
-
-- **Devices tab**: check your Arduino to hide it from everything
-- **Applications tab**: add `hid2xbox.exe` to the whitelist
-- Enable "Enable device hiding"
-
-Now only `hid2xbox` can read the Arduino. Games see only the virtual Xbox controller.
 
 ## Configuration
 
@@ -121,10 +110,6 @@ go test -v -count=1 -run "Test(Config|Normalize|Norm|Button|Contain)" ./...
 
 ```
 Arduino Leonardo ──→ joyGetPosEx (Winmm.dll) ──→ hid2xbox ──→ ViGEmBus ──→ Virtual Xbox 360
-                         │                                                       │
-                    HidHide blocks                                              Game sees
-                    games from seeing                                         only this
-                    this directly
 ```
 
 ## License
