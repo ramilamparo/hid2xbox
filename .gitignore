@@ -9,3 +9,4 @@ hid2xbox.exe
 # OS
 .DS_Store
 Thumbs.db
+*.zip
