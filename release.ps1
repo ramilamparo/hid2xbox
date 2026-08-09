@@ -15,26 +15,34 @@ $tag = "v$Version"
 
 Write-Host "=== hid2xbox release $tag ===" -ForegroundColor Cyan
 
-# Check for existing tag
-$existing = git tag -l $tag 2>$null
-if ($existing) {
-    Write-Warning "Tag $tag already exists locally."
-    if (-not $SkipPush) {
+# Fetch remote tags and check for existing tag/release
+if (-not $SkipPush) {
+    Write-Host "Fetching remote tags..." -ForegroundColor Yellow
+    git fetch --tags 2>$null
+
+    $remoteTag = git ls-remote --tags origin $tag 2>$null
+    if ($remoteTag) {
+        Write-Warning "Tag $tag already exists on remote."
         $choice = Read-Host "Delete and recreate? (y/n)"
         if ($choice -ne "y") { Write-Host "Aborted."; exit 0 }
+        git push origin :refs/tags/$tag 2>$null
+        git tag -d $tag 2>$null
+    }
+
+    $localTag = git tag -l $tag 2>$null
+    if ($localTag) {
+        Write-Warning "Tag $tag exists locally."
         git tag -d $tag
     }
-}
 
-# Check for existing GitHub release
-if (-not $SkipPush) {
-    $releaseExists = gh release view $tag 2>$null
+    gh release view $tag 2>$null
     if ($LASTEXITCODE -eq 0) {
         Write-Warning "Release $tag already exists on GitHub."
         $choice = Read-Host "Delete and recreate? (y/n)"
         if ($choice -ne "y") { Write-Host "Aborted."; exit 0 }
         gh release delete $tag --yes
         git push origin :refs/tags/$tag 2>$null
+        git tag -d $tag 2>$null
     }
 }
 
