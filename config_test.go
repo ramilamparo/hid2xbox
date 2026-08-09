@@ -38,6 +38,70 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
+func TestConfig_Normalize_SingleDevice(t *testing.T) {
+	cfg := &Config{Name: "Test", ID: 5, Mappings: []Mapping{{Type: "button", Source: 0, Target: "a"}}}
+	cfg.Normalize()
+	if len(cfg.Devices) != 1 {
+		t.Fatalf("expected 1 device after normalize, got %d", len(cfg.Devices))
+	}
+	if cfg.Devices[0].Name != "Test" || cfg.Devices[0].ID != 5 {
+		t.Errorf("device[0] = %+v, want Name=Test ID=5", cfg.Devices[0])
+	}
+}
+
+func TestConfig_Normalize_MultiDevice(t *testing.T) {
+	cfg := &Config{
+		Devices: []DeviceSpec{
+			{Name: "Handbrake", ID: 3},
+			{Name: "Wheel", ID: 1},
+		},
+		Mappings: []Mapping{
+			{Device: 0, Type: "axis", Source: 2, Target: "right_trigger"},
+			{Device: 1, Type: "axis", Source: 0, Target: "left_stick_x", Mode: "centered"},
+		},
+	}
+	cfg.Normalize()
+	if len(cfg.Devices) != 2 {
+		t.Fatalf("expected 2 devices, got %d", len(cfg.Devices))
+	}
+	if cfg.Mappings[0].Device != 0 || cfg.Mappings[1].Device != 1 {
+		t.Error("device indices should be preserved")
+	}
+}
+
+func TestConfig_SaveLoad_MultiDevice(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "multi.json")
+
+	cfg := &Config{
+		Devices: []DeviceSpec{
+			{Name: "A", ID: 1},
+			{Name: "B", ID: 2},
+		},
+		Mappings: []Mapping{
+			{Device: 0, Type: "axis", Source: 1, Target: "right_trigger"},
+			{Device: 1, Type: "button", Source: 3, Target: "a"},
+		},
+	}
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := LoadConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.Devices) != 2 {
+		t.Fatalf("got %d devices, want 2", len(loaded.Devices))
+	}
+	if loaded.Devices[0].Name != "A" || loaded.Devices[1].Name != "B" {
+		t.Errorf("devices = %+v", loaded.Devices)
+	}
+	if len(loaded.Mappings) != 2 {
+		t.Fatalf("got %d mappings, want 2", len(loaded.Mappings))
+	}
+}
+
 func TestLoadConfig_FileNotFound(t *testing.T) {
 	_, err := LoadConfig("testdata/nonexistent.json")
 	if err == nil {

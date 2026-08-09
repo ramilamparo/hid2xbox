@@ -39,6 +39,43 @@ var buttonTargets = []string{
 	"dpad_up", "dpad_down", "dpad_left", "dpad_right",
 }
 
+var thresholds = []float64{0.25, 0.50, 0.75, 0.90}
+
+var directions = []string{"both", "positive", "negative"}
+
+func isStickTarget(t string) bool {
+	switch t {
+	case "left_stick_x", "left_stick_y", "right_stick_x", "right_stick_y":
+		return true
+	}
+	return false
+}
+
+func (m *model) viewMappings() string {
+	if len(m.mappings) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\n  Keybindings:\n")
+	for _, mp := range m.mappings {
+		devName := fmt.Sprintf("d%d", mp.Device)
+		if n, ok := m.idxToName[mp.Device]; ok && n != "" {
+			devName = n
+		}
+		src := fmt.Sprintf("%s %s %d", devName, mp.Type, mp.Source)
+		dir := ""
+		if mp.Direction != "" && mp.Direction != "both" {
+			dir = fmt.Sprintf(" (%s)", mp.Direction)
+		}
+		thr := ""
+		if mp.Threshold > 0 {
+			thr = fmt.Sprintf("  thr=%.2f", mp.Threshold)
+		}
+		b.WriteString(fmt.Sprintf("  %-10s → %-18s%s%s\n", src, mp.Target, dir, thr))
+	}
+	return b.String()
+}
+
 // --- Messages ---
 
 type tickMsg struct {
@@ -68,10 +105,20 @@ type model struct {
 	selectedIndex  int
 	selectedIsAxis bool
 	selectedID     int
+	deviceIdx      int  // index into loadedConfig.Devices for the current device
+	idxToName      map[int]string // deviceIdx → joystick name (tracked across session)
+	idxToID        map[int]int    // deviceIdx → joystick ID
 
 	// Map
 	curMapping   Mapping
 	targetCursor int
+	modeIndex    int
+	thresholdIndex int
+	directionIndex  int
+	conflictReplaced bool
+	help            bool
+	configName      string
+	loadedConfig    *Config
 
 	// Review
 	mappings   []Mapping
@@ -87,6 +134,19 @@ func runTUI(configPath string) error {
 	}
 
 	prereq := detectPrereqs()
+
+	// Load existing config so keybindings are visible from the start.
+	var mappings []Mapping
+	var configName string
+	var loadedCfg *Config
+	if cfg, err := LoadConfig(configPath); err == nil {
+		loadedCfg = cfg
+		mappings = cfg.Mappings
+		if len(cfg.Devices) > 0 {
+			configName = cfg.Devices[0].Name
+		}
+	}
+
 	startScreen := screenSelect
 	if !prereq.ViGEmBusOK || !prereq.ViGEmClientOK {
 		startScreen = screenPrereq
@@ -97,6 +157,19 @@ func runTUI(configPath string) error {
 		prereq:     prereq,
 		joysticks:  sticks,
 		configPath: configPath,
+		mappings:   mappings,
+		configName: configName,
+		loadedConfig: loadedCfg,
+		idxToName:    map[int]string{},
+		idxToID:      map[int]int{},
+	}
+
+	// Pre-populate from loaded config so existing device indices are known.
+	if loadedCfg != nil {
+		for i, ds := range loadedCfg.Devices {
+			m.idxToName[i] = ds.Name
+			m.idxToID[i] = ds.ID
+		}
 	}
 
 	p := tea.NewProgram(m)
@@ -131,8 +204,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.screen == screenDiscover {
 			m.axes = msg.axes
 			m.buttons = msg.buttons
+		if m.dev != nil {
+			return m, tickCmd(m.dev)
 		}
-		return m, tickCmd(m.dev)
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -144,8 +220,20 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		m.quitting = true
 		return m, tea.Quit
+	case "?":
+		m.help = !m.help
+		return m, nil
 	case "esc":
+		if m.help {
+			m.help = false
+			return m, nil
+		}
 		return m.handleBack()
+	}
+
+	if m.help {
+		m.help = false
+		return m, nil
 	}
 
 	switch m.screen {
@@ -176,13 +264,17 @@ func (m *model) handleBack() (tea.Model, tea.Cmd) {
 		m.screen = screenDiscover
 		return m, tickCmd(m.dev)
 	case screenReview:
-		m.screen = screenDiscover
-		return m, tickCmd(m.dev)
+		m.screen = screenSelect
+		m.cleanupDevice()
+		return m, nil
 	}
 	return m, nil
 }
 
 func (m *model) View() string {
+	if m.help {
+		return m.helpView()
+	}
 	switch m.screen {
 	case screenPrereq:
 		return m.prereqView()
@@ -267,12 +359,12 @@ func (m *model) prereqView() string {
 	if m.downloading {
 		b.WriteString("  Downloading, please wait...\n")
 	} else if m.prereq.ViGEmBusOK && m.prereq.ViGEmClientOK {
-		b.WriteString("  [enter] continue  [q] quit\n")
+		b.WriteString("  [enter] continue  [q] quit  [?] help\n")
 	} else {
 		if !m.prereq.ViGEmClientOK {
 			b.WriteString("  [d] download ViGEmClient.dll  ")
 		}
-		b.WriteString("  [c] continue anyway  [q] quit\n")
+		b.WriteString("  [c] continue anyway  [q] quit  [?] help\n")
 	}
 	return b.String()
 }
@@ -292,6 +384,31 @@ func (m *model) selectUpdate(key string) (tea.Model, tea.Cmd) {
 	case "enter":
 		info := m.joysticks[m.cursor]
 		m.selectedID = info.ID
+		// Determine device index in the config.
+		m.deviceIdx = -1
+		if m.loadedConfig != nil {
+			for i, ds := range m.loadedConfig.Devices {
+				if contains(ds.Name, info.Name) || contains(info.Name, ds.Name) || (ds.ID > 0 && ds.ID == info.ID) {
+					m.deviceIdx = i
+					break
+				}
+			}
+		}
+		if m.deviceIdx < 0 {
+			// New device — use next available index.
+			if m.loadedConfig != nil {
+				m.deviceIdx = len(m.loadedConfig.Devices)
+			} else {
+			// Use next unused index based on already-tracked devices.
+			m.deviceIdx = len(m.idxToName)
+		}
+			}
+		if m.idxToName == nil {
+			m.idxToName = map[int]string{}
+			m.idxToID = map[int]int{}
+		}
+		m.idxToName[m.deviceIdx] = info.Name
+		m.idxToID[m.deviceIdx] = info.ID
 		dev, err := joystick.Open(info.ID)
 		if err != nil {
 			m.err = err
@@ -321,7 +438,11 @@ func (m *model) selectView() string {
 		b.WriteString(fmt.Sprintf(" %s %-28s id=%-2d axes: %d  buttons: %d  VID=%04X PID=%04X\n",
 			cursor, js.Name, js.ID, js.AxisCount, js.ButtonCount, js.VID, js.PID))
 	}
-	b.WriteString("\n  [enter] select  [q] quit\n")
+	sel := ""
+	if m.cursor < len(m.joysticks) {
+		sel = m.joysticks[m.cursor].Name + "  —  "
+	}
+	b.WriteString(fmt.Sprintf("\n  %s[enter] select  [q] quit  [?] help\n", sel))
 	return b.String()
 }
 
@@ -334,7 +455,10 @@ func (m *model) discoverUpdate(key string) (tea.Model, tea.Cmd) {
 			m.selectedIndex--
 		}
 	case "down", "j":
-		max := m.dev.Info().AxisCount + m.dev.Info().ButtonCount - 1
+		max := m.dev.Info().AxisCount - 1
+		if !m.selectedIsAxis {
+			max = m.dev.Info().ButtonCount - 1
+		}
 		if m.selectedIndex < max {
 			m.selectedIndex++
 		}
@@ -346,8 +470,10 @@ func (m *model) discoverUpdate(key string) (tea.Model, tea.Cmd) {
 		if !m.selectedIsAxis && m.selectedIndex >= m.dev.Info().ButtonCount {
 			m.selectedIndex = m.dev.Info().ButtonCount - 1
 		}
+		if m.selectedIndex < 0 {m.selectedIndex = 0}
 	case "enter", "m":
 		m.curMapping = Mapping{Source: m.selectedIndex, Deadzone: 0.05}
+		m.curMapping.Device = m.deviceIdx
 		if m.selectedIsAxis {
 			m.curMapping.Type = "axis"
 			r := m.dev.Info().AxisRanges[m.selectedIndex]
@@ -357,10 +483,38 @@ func (m *model) discoverUpdate(key string) (tea.Model, tea.Cmd) {
 			m.curMapping.Type = "button"
 		}
 		m.targetCursor = 0
+		m.modeIndex = modeToIndex(m.curMapping.Mode, m.curMapping.Invert)
 		m.screen = screenMap
+		return m, nil
+	case "tab":
+		m.screen = screenSelect
+		m.selectedIndex = m.selectedID
+		m.cleanupDevice()
 		return m, nil
 	}
 	return m, nil
+}
+
+var axisModes = []struct{ label, desc string }{
+	{"normal",            "0 → max  ──→  0 → 1"},
+	{"inverted",          "0 → max  ──→  1 → 0"},
+	{"centered",          "min←mid→max  ──→  -1←0→+1"},
+	{"centered_inverted", "min←mid→max  ──→  +1←0→-1"},
+}
+
+func modeToIndex(mode string, invert bool) int {
+	switch mode {
+	case "inverted":
+		return 1
+	case "centered":
+		return 2
+	case "centered_inverted":
+		return 3
+	}
+	if invert {
+		return 1
+	}
+	return 0
 }
 
 func (m *model) discoverView() string {
@@ -391,7 +545,8 @@ func (m *model) discoverView() string {
 		b.WriteString(fmt.Sprintf(" %s %s  Button %d\n", marker, state, i))
 	}
 
-	b.WriteString("\n  [↑↓] navigate  [←→] axis/button  [enter] map  [esc] back\n")
+	b.WriteString("\n  [↑↓] navigate  [←→] axis/button  [enter] map  [esc] back  [tab] switch device  [?] help\n")
+	b.WriteString(m.viewMappings())
 	return b.String()
 }
 
@@ -402,6 +557,12 @@ func (m *model) mapUpdate(key string) (tea.Model, tea.Cmd) {
 	if m.curMapping.Type == "button" {
 		targets = buttonTargets
 	}
+	if m.curMapping.Type == "axis" {
+		targets = append(append([]string{}, axisTargets...), buttonTargets...)
+	}
+
+	// Clear one-shot conflict message on any key.
+	m.conflictReplaced = false
 
 	switch key {
 	case "up", "k":
@@ -412,22 +573,60 @@ func (m *model) mapUpdate(key string) (tea.Model, tea.Cmd) {
 		if m.targetCursor < len(targets)-1 {
 			m.targetCursor++
 		}
-	case "tab":
-		m.curMapping.Invert = !m.curMapping.Invert
+	case "left", "h":
+		if m.modeIndex > 0 {
+			m.modeIndex--
+		}
+	case "right", "l":
+		if m.modeIndex < len(axisModes)-1 {
+			m.modeIndex++
+		}
+	case "t":
+		if m.curMapping.Type == "axis" && m.targetCursor < len(targets) {
+			if _, isBtn := buttonMap[targets[m.targetCursor]]; isBtn {
+				m.thresholdIndex = (m.thresholdIndex + 1) % len(thresholds)
+			}
+		}
+	case "d":
+		if m.curMapping.Type == "axis" && m.targetCursor < len(targets) {
+			if isStickTarget(targets[m.targetCursor]) || isButtonTarget(targets[m.targetCursor]) {
+				m.directionIndex = (m.directionIndex + 1) % len(directions)
+			}
+		}
 	case "enter":
 		m.curMapping.Target = targets[m.targetCursor]
+		m.curMapping.Mode = axisModes[m.modeIndex].label
+		if m.curMapping.Type == "axis" {
+			_, isBtn := buttonMap[m.curMapping.Target]
+			isStick := isStickTarget(m.curMapping.Target)
+			if isBtn {
+				m.curMapping.Threshold = thresholds[m.thresholdIndex]
+				m.curMapping.Direction = directions[m.directionIndex]
+			} else if isStick {
+				m.curMapping.Threshold = 0
+				m.curMapping.Direction = directions[m.directionIndex]
+			} else {
+				m.curMapping.Threshold = 0
+				m.curMapping.Direction = ""
+			}
+		}
 		m.upsertMapping()
 		m.screen = screenReview
+		return m, nil
+	case "tab":
+		m.screen = screenSelect
+		m.cleanupDevice()
 		return m, nil
 	}
 	return m, nil
 }
 
-// upsertMapping replaces an existing mapping for the same (type, source) or appends.
+// upsertMapping replaces an existing mapping for the same (type, source, target) or appends.
 func (m *model) upsertMapping() {
 	for i, existing := range m.mappings {
-		if existing.Type == m.curMapping.Type && existing.Source == m.curMapping.Source {
+		if existing.Type == m.curMapping.Type && existing.Source == m.curMapping.Source && existing.Target == m.curMapping.Target {
 			m.mappings[i] = m.curMapping
+			m.conflictReplaced = true
 			return
 		}
 	}
@@ -439,6 +638,11 @@ func (m *model) mapView() string {
 	if m.curMapping.Type == "button" {
 		targets = buttonTargets
 	}
+	// For axis mappings, show all targets (axis + button) so the user can map
+	// an axis to a button trigger or vice versa.
+	if m.curMapping.Type == "axis" {
+		targets = append(append([]string{}, axisTargets...), buttonTargets...)
+	}
 
 	var b strings.Builder
 	inputLabel := fmt.Sprintf("Axis %d", m.curMapping.Source)
@@ -449,8 +653,33 @@ func (m *model) mapView() string {
 	b.WriteString(fmt.Sprintf("\n  Map %s\n\n", inputLabel))
 	if m.curMapping.Type == "axis" {
 		b.WriteString(fmt.Sprintf("  Input range: %d - %d\n", m.curMapping.Min, m.curMapping.Max))
-		b.WriteString(fmt.Sprintf("  Invert: %v\n\n", m.curMapping.Invert))
+		mode := axisModes[m.modeIndex]
+		b.WriteString(fmt.Sprintf("  Mode: %s  (%s)\n", mode.label, mode.desc))
+
+		// Show threshold when target is a button.
+		if m.targetCursor < len(targets) {
+			sel := targets[m.targetCursor]
+			if _, isBtn := buttonMap[sel]; isBtn {
+				b.WriteString(fmt.Sprintf("  Threshold: %.2f\n", thresholds[m.thresholdIndex]))
+			}
+		}
+
+		// Show direction when target is a stick.
+		if m.targetCursor < len(targets) {
+			sel := targets[m.targetCursor]
+			if isStickTarget(sel) || isButtonTarget(sel) {
+				b.WriteString(fmt.Sprintf("  Direction: %s\n", directions[m.directionIndex]))
+			}
+		}
+
+		// Visual preview
+		b.WriteString("  " + modeBar(m.modeIndex, 40) + "\n\n")
 	}
+
+	if m.conflictReplaced {
+		b.WriteString("  [!] Replaced existing mapping\n\n")
+	}
+
 	b.WriteString("  Target:\n")
 	for i, t := range targets {
 		cursor := " "
@@ -460,7 +689,8 @@ func (m *model) mapView() string {
 		b.WriteString(fmt.Sprintf(" %s %s\n", cursor, t))
 	}
 
-	b.WriteString("\n  [enter] confirm  [tab] toggle invert  [esc] back\n")
+	b.WriteString("\n  [←→] mode  [t] threshold  [d] direction  [enter] confirm  [esc] back  [tab] switch device  [?] help\n")
+	b.WriteString(m.viewMappings())
 	return b.String()
 }
 
@@ -469,7 +699,7 @@ func (m *model) mapView() string {
 func (m *model) reviewUpdate(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "s":
-		cfg := &Config{Name: m.dev.Info().Name, ID: m.selectedID, Mappings: m.mappings}
+		cfg := m.buildConfig()
 		if err := SaveConfig(m.configPath, cfg); err != nil {
 			m.err = err
 			return m, tea.Quit
@@ -481,6 +711,10 @@ func (m *model) reviewUpdate(key string) (tea.Model, tea.Cmd) {
 		m.selectedIndex = 0
 		m.selectedIsAxis = true
 		return m, tickCmd(m.dev)
+	case "tab":
+		m.screen = screenSelect
+		m.cleanupDevice()
+		return m, nil
 	case "q":
 		m.quitting = true
 		return m, tea.Quit
@@ -494,21 +728,137 @@ func (m *model) reviewView() string {
 	b.WriteString(fmt.Sprintf("\n  Review & Save — %s\n\n", info.Name))
 	b.WriteString(fmt.Sprintf("  %-20s → %-20s\n", "Source", "Target"))
 	b.WriteString("  " + strings.Repeat("─", 42) + "\n")
+
+	// Detect shared-source pairs.
+	type srcKey struct {
+		typ    string
+		source int
+	}
+	seen := map[srcKey]bool{}
 	for _, mp := range m.mappings {
+		k := srcKey{mp.Type, mp.Source}
+		if seen[k] {
+			seen[k] = false // mark as duplicate (already printed one)
+		}
+		if _, ok := seen[k]; !ok {
+			seen[k] = true
+		}
+	}
+
+	for _, mp := range m.mappings {
+		k := srcKey{mp.Type, mp.Source}
+		marker := " "
+		if v, ok := seen[k]; ok && !v {
+			marker = "*"
+		}
 		src := fmt.Sprintf("%s %d", mp.Type, mp.Source)
-		b.WriteString(fmt.Sprintf("  %-20s → %-20s", src, mp.Target))
+		b.WriteString(fmt.Sprintf(" %s%-19s → %-20s", marker, src, mp.Target))
 		if mp.Type == "axis" {
 			b.WriteString(fmt.Sprintf("  %d-%d", mp.Min, mp.Max))
-			if mp.Invert {
-				b.WriteString(" inv")
+			if mp.Mode != "" && mp.Mode != "normal" {
+				b.WriteString(fmt.Sprintf(" %s", mp.Mode))
+			}
+			if mp.Direction != "" && mp.Direction != "both" {
+				b.WriteString(fmt.Sprintf(" dir=%s", mp.Direction))
+			}
+			if mp.Threshold > 0 {
+				b.WriteString(fmt.Sprintf(" thr=%.2f", mp.Threshold))
 			}
 		}
 		b.WriteString("\n")
 	}
 
 	b.WriteString(fmt.Sprintf("\n  Save to: %s\n", m.configPath))
-	b.WriteString("\n  [s] save & exit  [a] add mapping  [q] discard\n")
+	b.WriteString("\n  [s] save & exit  [a] add mapping  [tab] switch device  [esc] device list  [q] discard  [?] help\n")
 	return b.String()
+}
+
+func (m *model) helpView() string {
+	if len(m.mappings) == 0 {
+		return "\n  No keybindings yet — map some inputs first.\n\n  Press any key to close\n"
+	}
+	var b strings.Builder
+	name := ""
+	if m.dev != nil {
+		name = " — " + m.dev.Info().Name
+	} else if m.configName != "" {
+		name = " — " + m.configName
+	}
+	b.WriteString(fmt.Sprintf("\n  Keybindings%s\n", name))
+	b.WriteString("  " + strings.Repeat("─", 42) + "\n\n")
+
+	for _, mp := range m.mappings {
+		devName := fmt.Sprintf("d%d", mp.Device)
+		if n, ok := m.idxToName[mp.Device]; ok && n != "" {
+			devName = n
+		}
+		src := fmt.Sprintf("%s %s %d", devName, mp.Type, mp.Source)
+		dir := ""
+		if mp.Direction != "" && mp.Direction != "both" {
+			dir = fmt.Sprintf(" (%s)", mp.Direction)
+		}
+		thr := ""
+		if mp.Threshold > 0 {
+			thr = fmt.Sprintf("  thr=%.2f", mp.Threshold)
+		}
+		b.WriteString(fmt.Sprintf("  %-10s → %-18s%s%s\n", src, mp.Target, dir, thr))
+	}
+	b.WriteString("\n  Press any key to close\n")
+	return b.String()
+}
+
+func (m *model) buildConfig() *Config {
+	// Collect all unique device infos referenced by mappings.
+	type devInfo struct {
+		name string
+		id   int
+	}
+	devMap := map[int]devInfo{}
+	for _, mp := range m.mappings {
+		if _, ok := devMap[mp.Device]; ok {
+			continue
+		}
+		var name string
+		var id int
+		// Prefer the tracked idxToName/idxToID maps (populated during device selection).
+		if m.idxToName != nil {
+			if n, ok := m.idxToName[mp.Device]; ok {
+				name = n
+				id = m.idxToID[mp.Device]
+			}
+		}
+		// Fall back to loaded config.
+		if name == "" && m.loadedConfig != nil && mp.Device < len(m.loadedConfig.Devices) {
+			ds := m.loadedConfig.Devices[mp.Device]
+			name = ds.Name
+			id = ds.ID
+		}
+		// Last resort: current device.
+		if name == "" && m.dev != nil && mp.Device == m.deviceIdx {
+			name = m.dev.Info().Name
+			id = m.selectedID
+		}
+		devMap[mp.Device] = devInfo{name: name, id: id}
+	}
+
+	// Build device list covering all indices up to the max.
+	maxIdx := 0
+	for idx := range devMap {
+		if idx > maxIdx {
+			maxIdx = idx
+		}
+	}
+	devices := make([]DeviceSpec, maxIdx+1)
+	for idx := range devices {
+		if di, ok := devMap[idx]; ok {
+			devices[idx] = DeviceSpec{Name: di.name, ID: di.id}
+		}
+	}
+
+	return &Config{
+		Devices:  devices,
+		Mappings: m.mappings,
+	}
 }
 
 // --- Helpers ---
@@ -537,9 +887,29 @@ func bar(value, min, max uint32, width int) string {
 	return strings.Repeat("█", fill) + strings.Repeat("░", width-fill)
 }
 
+func modeBar(modeIndex, width int) string {
+	half := width / 2
+	switch modeIndex {
+	case 0: // normal: fills left to right
+		return strings.Repeat("░", width) + " → " + strings.Repeat("█", width)
+	case 1: // inverted: fills right to left
+		return strings.Repeat("█", width) + " → " + strings.Repeat("░", width)
+	case 2: // centered: center to both ends
+		return strings.Repeat("█", half) + "|░|" + strings.Repeat("█", half) + " → " + strings.Repeat("█", half) + "░" + strings.Repeat("█", half)
+	case 3: // centered_inverted: both ends to center
+		return strings.Repeat("█", half) + "|░|" + strings.Repeat("█", half) + " → " + strings.Repeat("█", half) + "░" + strings.Repeat("█", half)
+	}
+	return ""
+}
+
 func (m *model) cleanupDevice() {
 	if m.dev != nil {
 		m.dev.Close()
 		m.dev = nil
 	}
+}
+
+func isButtonTarget(t string) bool {
+	_, ok := buttonMap[t]
+	return ok
 }

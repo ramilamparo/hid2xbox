@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -19,6 +21,8 @@ func (c *configsFlag) Set(v string) error {
 func main() {
 	var configs configsFlag
 	setup := flag.Bool("setup", false, "Run the interactive TUI to discover inputs and create a config")
+	debugLog := flag.String("debug-log", "", "Write debug logs (inputs, values, errors) to file")
+	debugStdout := flag.Bool("debug", false, "Show virtual Xbox 360 controller state in real time")
 	flag.Var(&configs, "config", "Path to JSON config file (repeatable)")
 	flag.Parse()
 
@@ -36,14 +40,19 @@ func main() {
 
 	ctx := signalContext()
 	var wg sync.WaitGroup
+	var connectMu sync.Mutex
 	errs := make(chan error, len(configs))
 
 	for i, cfg := range configs {
 		wg.Add(1)
 		go func(id int, path string) {
 			defer wg.Done()
-			if err := RunBridge(ctx, path); err != nil {
-				errs <- fmt.Errorf("controller %d (%s): %w", id+1, path, err)
+			if err := RunBridge(ctx, path, &connectMu, *debugLog, *debugStdout); err != nil {
+				if errors.Is(err, context.Canceled) {
+					fmt.Printf("Controller %d (%s): shutting down\n", id+1, path)
+				} else {
+					errs <- fmt.Errorf("controller %d (%s): %w", id+1, path, err)
+				}
 			}
 		}(i, cfg)
 	}

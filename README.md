@@ -26,12 +26,6 @@ go build -o hid2xbox.exe .
 go install github.com/ramilamparo/hid2xbox@latest
 ```
 
-### Create a release locally
-
-```powershell
-.\release.ps1 -Version 0.0.2    # builds, packages, optionally pushes to GitHub
-.\release.ps1 -DryRun            # build and package only, no GitHub push
-```
 
 ## Quick Start
 

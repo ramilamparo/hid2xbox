@@ -5,106 +5,219 @@ import (
 	"testing"
 )
 
-// --- normalizeAxis ---
+// --- clampNorm: normal mode ---
 
-func TestNormalizeAxis_Basic(t *testing.T) {
-	// 0–1023 range: mid = 512 → 0.5
-	norm := normalizeAxis(512, 0, 1023, false, 0)
-	if math.Abs(norm-0.5) > 0.001 {
-		t.Errorf("normalizeAxis(512, 0, 1023) = %v, want ~0.5", norm)
+func TestClampNorm_NormalMid(t *testing.T) {
+	v := clampNorm(512, 0, 1023, "normal", 0)
+	if math.Abs(v-0.5) > 0.001 {
+		t.Errorf("clampNorm(512, 0, 1023, normal) = %v, want 0.5", v)
 	}
 }
 
-func TestNormalizeAxis_Min(t *testing.T) {
-	norm := normalizeAxis(0, 0, 1023, false, 0)
-	if norm != 0 {
-		t.Errorf("normalizeAxis(0, 0, 1023) = %v, want 0", norm)
+// --- axisToStick: direction ---
+
+func TestAxisToStick_DirectionBoth(t *testing.T) {
+	x, _ := axisToStick("left_stick_x", 512, 0, 1023, "normal", 0, "both")
+	if math.Abs(float64(x)) > 200 {
+		t.Errorf("both direction at mid should be ~0, got %d", x)
+	}
+	x, _ = axisToStick("left_stick_x", 1023, 0, 1023, "normal", 0, "both")
+	if x < 32000 {
+		t.Errorf("both direction at max should be ~32767, got %d", x)
 	}
 }
 
-func TestNormalizeAxis_Max(t *testing.T) {
-	norm := normalizeAxis(1023, 0, 1023, false, 0)
-	if norm != 1 {
-		t.Errorf("normalizeAxis(1023, 0, 1023) = %v, want 1", norm)
+func TestAxisToStick_DirectionPositive(t *testing.T) {
+	x, _ := axisToStick("left_stick_x", 1023, 0, 1023, "normal", 0, "positive")
+	if x < 32000 {
+		t.Errorf("positive direction at max should be ~32767, got %d", x)
+	}
+	x, _ = axisToStick("left_stick_x", 0, 0, 1023, "normal", 0, "positive")
+	if x != 0 {
+		t.Errorf("positive direction at min should be 0, got %d", x)
 	}
 }
 
-func TestNormalizeAxis_ClampBelow(t *testing.T) {
-	norm := normalizeAxis(0, 100, 200, false, 0)
-	if norm != 0 {
-		t.Errorf("normalizeAxis(0, 100, 200) = %v, want 0 (clamped to min)", norm)
+func TestAxisToStick_DirectionNegative(t *testing.T) {
+	x, _ := axisToStick("left_stick_x", 0, 0, 1023, "normal", 0, "negative")
+	if x > -32000 {
+		t.Errorf("negative direction at min should be ~-32767, got %d", x)
+	}
+	x, _ = axisToStick("left_stick_x", 1023, 0, 1023, "normal", 0, "negative")
+	if x != 0 {
+		t.Errorf("negative direction at max should be 0, got %d", x)
 	}
 }
 
-func TestNormalizeAxis_ClampAbove(t *testing.T) {
-	norm := normalizeAxis(300, 100, 200, false, 0)
-	if norm != 1 {
-		t.Errorf("normalizeAxis(300, 100, 200) = %v, want 1 (clamped to max)", norm)
+func TestAxisToStick_DirectionCentered(t *testing.T) {
+	x, _ := axisToStick("left_stick_x", 0, 0, 1023, "centered", 0, "positive")
+	if x > -32000 {
+		t.Errorf("centered with positive dir at min should be ~-32767, got %d", x)
 	}
 }
 
-func TestNormalizeAxis_InvalidRange(t *testing.T) {
-	norm := normalizeAxis(50, 100, 100, false, 0)
-	if norm != -1 {
-		t.Errorf("normalizeAxis(50, 100, 100) = %v, want -1 (invalid range)", norm)
+// --- axisToTrigger: direction negative ---
+
+func TestAxisToTrigger_DirectionNegative(t *testing.T) {
+	v := axisToTrigger(0, 0, 1023, "normal", 0, "negative")
+	if v != 255 {
+		t.Errorf("negative direction at min should be 255, got %d", v)
+	}
+	v = axisToTrigger(1023, 0, 1023, "normal", 0, "negative")
+	if v != 0 {
+		t.Errorf("negative direction at max should be 0, got %d", v)
 	}
 }
 
-func TestNormalizeAxis_Deadzone(t *testing.T) {
-	// 10% deadzone: 0.05 → 0, 0.1 → remapped
-	z := normalizeAxis(51, 0, 1023, false, 0.1) // raw ~5%
+func TestAxisToTrigger_DirectionPositive(t *testing.T) {
+	v := axisToTrigger(1023, 0, 1023, "normal", 0, "positive")
+	if v != 255 {
+		t.Errorf("positive direction at max should be 255, got %d", v)
+	}
+	v = axisToTrigger(0, 0, 1023, "normal", 0, "positive")
+	if v != 0 {
+		t.Errorf("positive direction at min should be 0, got %d", v)
+	}
+}
+
+func TestClampNorm_NormalMin(t *testing.T) {
+	v := clampNorm(0, 0, 1023, "normal", 0)
+	if v != 0 {
+		t.Errorf("clampNorm(0, 0, 1023, normal) = %v, want 0", v)
+	}
+}
+
+func TestClampNorm_NormalMax(t *testing.T) {
+	v := clampNorm(1023, 0, 1023, "normal", 0)
+	if v != 1 {
+		t.Errorf("clampNorm(1023, 0, 1023, normal) = %v, want 1", v)
+	}
+}
+
+func TestClampNorm_NormalClampBelow(t *testing.T) {
+	v := clampNorm(0, 100, 200, "normal", 0)
+	if v != 0 {
+		t.Errorf("clampNorm(0, 100, 200, normal) = %v, want 0", v)
+	}
+}
+
+func TestClampNorm_NormalClampAbove(t *testing.T) {
+	v := clampNorm(300, 100, 200, "normal", 0)
+	if v != 1 {
+		t.Errorf("clampNorm(300, 100, 200, normal) = %v, want 1", v)
+	}
+}
+
+func TestClampNorm_NormalDeadzone(t *testing.T) {
+	z := clampNorm(51, 0, 1023, "normal", 0.1)
 	if z != 0 {
 		t.Errorf("value in deadzone should be 0, got %v", z)
 	}
-	full := normalizeAxis(1023, 0, 1023, false, 0.1)
+	full := clampNorm(1023, 0, 1023, "normal", 0.1)
 	if math.Abs(full-1.0) > 0.001 {
 		t.Errorf("max with deadzone should be 1.0, got %v", full)
 	}
 }
 
-func TestNormalizeAxis_Invert(t *testing.T) {
-	norm := normalizeAxis(0, 0, 1023, true, 0)
-	if norm != 1 {
-		t.Errorf("inverted min should be 1, got %v", norm)
-	}
-	norm = normalizeAxis(1023, 0, 1023, true, 0)
-	if norm != 0 {
-		t.Errorf("inverted max should be 0, got %v", norm)
+func TestClampNorm_NormalNonZeroMin(t *testing.T) {
+	v := clampNorm(300, 200, 400, "normal", 0)
+	if math.Abs(v-0.5) > 0.001 {
+		t.Errorf("clampNorm(300, 200, 400, normal) = %v, want 0.5", v)
 	}
 }
 
-func TestNormalizeAxis_InvertWithDeadzone(t *testing.T) {
-	// Inverted + deadzone: min→1, deadzone near max end
-	norm := normalizeAxis(0, 0, 1023, true, 0.1)
-	if math.Abs(norm-1.0) > 0.001 {
-		t.Errorf("inverted min with deadzone should be 1.0, got %v", norm)
+// --- clampNorm: inverted mode ---
+
+func TestClampNorm_InvertedMin(t *testing.T) {
+	v := clampNorm(0, 0, 1023, "inverted", 0)
+	if v != 1 {
+		t.Errorf("clampNorm(0, 0, 1023, inverted) = %v, want 1", v)
 	}
 }
 
-func TestNormalizeAxis_NonZeroMin(t *testing.T) {
-	norm := normalizeAxis(300, 200, 400, false, 0)
-	if math.Abs(norm-0.5) > 0.001 {
-		t.Errorf("normalizeAxis(300, 200, 400) = %v, want 0.5", norm)
+func TestClampNorm_InvertedMax(t *testing.T) {
+	v := clampNorm(1023, 0, 1023, "inverted", 0)
+	if v != 0 {
+		t.Errorf("clampNorm(1023, 0, 1023, inverted) = %v, want 0", v)
 	}
 }
 
-// --- normToStick ---
-
-func TestNormToStick_Center(t *testing.T) {
-	if n := normToStick(0.5); n != 0 {
-		t.Errorf("normToStick(0.5) = %d, want 0", n)
+func TestClampNorm_InvertedWithDeadzone(t *testing.T) {
+	v := clampNorm(0, 0, 1023, "inverted", 0.1)
+	if math.Abs(v-1.0) > 0.001 {
+		t.Errorf("inverted min with deadzone should be 1.0, got %v", v)
 	}
 }
 
-func TestNormToStick_Min(t *testing.T) {
-	if n := normToStick(0); n != -32767 {
-		t.Errorf("normToStick(0) = %d, want -32767", n)
+// --- clampNorm: centered mode ---
+
+func TestClampNorm_CenteredMidpoint(t *testing.T) {
+	v := clampNorm(512, 0, 1023, "centered", 0)
+	if math.Abs(v) > 0.001 {
+		t.Errorf("centered midpoint should be 0, got %v", v)
 	}
 }
 
-func TestNormToStick_Max(t *testing.T) {
-	if n := normToStick(1); n != 32767 {
-		t.Errorf("normToStick(1) = %d, want 32767", n)
+func TestClampNorm_CenteredMin(t *testing.T) {
+	v := clampNorm(0, 0, 1023, "centered", 0)
+	if math.Abs(v+1.0) > 0.001 {
+		t.Errorf("centered min should be -1, got %v", v)
+	}
+}
+
+func TestClampNorm_CenteredMax(t *testing.T) {
+	v := clampNorm(1023, 0, 1023, "centered", 0)
+	if math.Abs(v-1.0) > 0.001 {
+		t.Errorf("centered max should be 1, got %v", v)
+	}
+}
+
+func TestClampNorm_CenteredDeadzone(t *testing.T) {
+	// Within 5% of center should be 0
+	v := clampNorm(537, 0, 1023, "centered", 0.1) // ~5% right
+	if v != 0 {
+		t.Errorf("centered within deadzone should be 0, got %v", v)
+	}
+	// Outside deadzone
+	v = clampNorm(700, 0, 1023, "centered", 0.1)
+	if v <= 0.2 {
+		t.Errorf("centered outside deadzone should be > 0.2, got %v", v)
+	}
+}
+
+// --- clampNorm: centered_inverted mode ---
+
+func TestClampNorm_CenteredInvertedMin(t *testing.T) {
+	v := clampNorm(0, 0, 1023, "centered_inverted", 0)
+	if math.Abs(v-1.0) > 0.001 {
+		t.Errorf("centered_inverted min should be 1, got %v", v)
+	}
+}
+
+func TestClampNorm_CenteredInvertedMax(t *testing.T) {
+	v := clampNorm(1023, 0, 1023, "centered_inverted", 0)
+	if math.Abs(v+1.0) > 0.001 {
+		t.Errorf("centered_inverted max should be -1, got %v", v)
+	}
+}
+
+// --- axisMode resolution ---
+
+func TestAxisMode_Normal(t *testing.T) {
+	if mode := axisMode("", false); mode != "normal" {
+		t.Errorf("empty mode → %q, want normal", mode)
+	}
+}
+
+func TestAxisMode_DeprecatedInvert(t *testing.T) {
+	if mode := axisMode("", true); mode != "inverted" {
+		t.Errorf("empty mode + invert → %q, want inverted", mode)
+	}
+}
+
+func TestAxisMode_ExplicitMode(t *testing.T) {
+	if mode := axisMode("centered", true); mode != "centered" {
+		t.Errorf("explicit centered → %q", mode)
 	}
 }
 
@@ -126,8 +239,6 @@ func TestButtonMap_AllTargetsExist(t *testing.T) {
 }
 
 func TestApplyButton_UnknownTarget(t *testing.T) {
-	// applyButton with unknown target should not panic.
-	// (We can't test without a real *x360.Gamepad, but the lookup is safe.)
 	_, ok := buttonMap["nonexistent"]
 	if ok {
 		t.Error("buttonMap should not contain 'nonexistent'")
