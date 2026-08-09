@@ -11,6 +11,10 @@ type Config struct {
 	// Name is a substring match against the joystick name reported by Windows.
 	Name string `json:"name"`
 
+	// ID is the stable joystick identifier from joyGetDevCaps (0-15).
+	// When set, it takes priority over name matching.
+	ID int `json:"id,omitempty"`
+
 	// Mappings define how joystick inputs translate to Xbox controller outputs.
 	Mappings []Mapping `json:"mappings"`
 }

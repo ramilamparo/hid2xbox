@@ -20,9 +20,9 @@ func RunBridge(ctx context.Context, cfgPath string) error {
 		return fmt.Errorf("loading config: %w", err)
 	}
 
-	dev, err := findJoystick(cfg.Name)
+	dev, err := findJoystick(cfg)
 	if err != nil {
-		return fmt.Errorf("finding joystick %q: %w", cfg.Name, err)
+		return fmt.Errorf("finding joystick: %w", err)
 	}
 	fmt.Printf("Found joystick: %s (VID=%04X PID=%04X, %d axes, %d buttons)\n",
 		dev.Info().Name, dev.Info().VID, dev.Info().PID,
@@ -43,17 +43,23 @@ func RunBridge(ctx context.Context, cfgPath string) error {
 
 	return pollLoop(ctx, dev, pad, cfg.Mappings)
 }
+func findJoystick(cfg *Config) (*joystick.Device, error) {
+	if cfg.ID > 0 || cfg.Name == "" {
+		dev, err := joystick.Open(cfg.ID)
+		if err == nil {
+			return dev, nil
+		}
+		// If ID-based match fails, fall through to name search.
+	}
 
-func findJoystick(name string) (*joystick.Device, error) {
 	all := joystick.Enumerate()
 	for _, info := range all {
-		if contains(info.Name, name) {
+		if contains(info.Name, cfg.Name) {
 			return joystick.Open(info.ID)
 		}
 	}
-	return nil, fmt.Errorf("no joystick matching %q found (scanned %d devices)", name, len(all))
+	return nil, fmt.Errorf("no joystick matching %q (id=%d) found among %d devices", cfg.Name, cfg.ID, len(all))
 }
-
 func contains(s, substr string) bool {
 	return len(substr) == 0 || len(s) >= len(substr) && searchSubstring(s, substr)
 }

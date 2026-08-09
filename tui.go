@@ -67,6 +67,7 @@ type model struct {
 	buttons        uint32
 	selectedIndex  int
 	selectedIsAxis bool
+	selectedID     int
 
 	// Map
 	curMapping   Mapping
@@ -290,6 +291,7 @@ func (m *model) selectUpdate(key string) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		info := m.joysticks[m.cursor]
+		m.selectedID = info.ID
 		dev, err := joystick.Open(info.ID)
 		if err != nil {
 			m.err = err
@@ -316,8 +318,8 @@ func (m *model) selectView() string {
 		if i == m.cursor {
 			cursor = ">"
 		}
-		b.WriteString(fmt.Sprintf(" %s %-32s axes: %d  buttons: %d  VID=%04X PID=%04X\n",
-			cursor, js.Name, js.AxisCount, js.ButtonCount, js.VID, js.PID))
+		b.WriteString(fmt.Sprintf(" %s %-28s id=%-2d axes: %d  buttons: %d  VID=%04X PID=%04X\n",
+			cursor, js.Name, js.ID, js.AxisCount, js.ButtonCount, js.VID, js.PID))
 	}
 	b.WriteString("\n  [enter] select  [q] quit\n")
 	return b.String()
@@ -467,7 +469,7 @@ func (m *model) mapView() string {
 func (m *model) reviewUpdate(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "s":
-		cfg := &Config{Name: m.dev.Info().Name, Mappings: m.mappings}
+		cfg := &Config{Name: m.dev.Info().Name, ID: m.selectedID, Mappings: m.mappings}
 		if err := SaveConfig(m.configPath, cfg); err != nil {
 			m.err = err
 			return m, tea.Quit
