@@ -107,7 +107,6 @@ type model struct {
 	selectedID     int
 	deviceIdx      int  // index into loadedConfig.Devices for the current device
 	idxToName      map[int]string // deviceIdx → joystick name (tracked across session)
-	idxToID        map[int]int    // deviceIdx → joystick ID
 
 	// Map
 	curMapping   Mapping
@@ -161,14 +160,12 @@ func runTUI(configPath string) error {
 		configName: configName,
 		loadedConfig: loadedCfg,
 		idxToName:    map[int]string{},
-		idxToID:      map[int]int{},
 	}
 
 	// Pre-populate from loaded config so existing device indices are known.
 	if loadedCfg != nil {
 		for i, ds := range loadedCfg.Devices {
 			m.idxToName[i] = ds.Name
-			m.idxToID[i] = ds.ID
 		}
 	}
 
@@ -388,7 +385,7 @@ func (m *model) selectUpdate(key string) (tea.Model, tea.Cmd) {
 		m.deviceIdx = -1
 		if m.loadedConfig != nil {
 			for i, ds := range m.loadedConfig.Devices {
-				if contains(ds.Name, info.Name) || contains(info.Name, ds.Name) || (ds.ID > 0 && ds.ID == info.ID) {
+				if contains(ds.Name, info.Name) || contains(info.Name, ds.Name) {
 					m.deviceIdx = i
 					break
 				}
@@ -405,10 +402,8 @@ func (m *model) selectUpdate(key string) (tea.Model, tea.Cmd) {
 			}
 		if m.idxToName == nil {
 			m.idxToName = map[int]string{}
-			m.idxToID = map[int]int{}
 		}
 		m.idxToName[m.deviceIdx] = info.Name
-		m.idxToID[m.deviceIdx] = info.ID
 		dev, err := joystick.Open(info.ID)
 		if err != nil {
 			m.err = err
@@ -435,8 +430,8 @@ func (m *model) selectView() string {
 		if i == m.cursor {
 			cursor = ">"
 		}
-		b.WriteString(fmt.Sprintf(" %s %-28s id=%-2d axes: %d  buttons: %d  VID=%04X PID=%04X\n",
-			cursor, js.Name, js.ID, js.AxisCount, js.ButtonCount, js.VID, js.PID))
+		b.WriteString(fmt.Sprintf(" %s %-28s axes: %d  buttons: %d  VID=%04X PID=%04X\n",
+			cursor, js.Name, js.AxisCount, js.ButtonCount, js.VID, js.PID))
 	}
 	sel := ""
 	if m.cursor < len(m.joysticks) {
@@ -483,7 +478,7 @@ func (m *model) discoverUpdate(key string) (tea.Model, tea.Cmd) {
 			m.curMapping.Type = "button"
 		}
 		m.targetCursor = 0
-		m.modeIndex = modeToIndex(m.curMapping.Mode, m.curMapping.Invert)
+		m.modeIndex = modeToIndex(m.curMapping.Mode)
 		m.screen = screenMap
 		return m, nil
 	case "tab":
@@ -502,7 +497,7 @@ var axisModes = []struct{ label, desc string }{
 	{"centered_inverted", "min←mid→max  ──→  +1←0→-1"},
 }
 
-func modeToIndex(mode string, invert bool) int {
+func modeToIndex(mode string) int {
 	switch mode {
 	case "inverted":
 		return 1
@@ -510,9 +505,6 @@ func modeToIndex(mode string, invert bool) int {
 		return 2
 	case "centered_inverted":
 		return 3
-	}
-	if invert {
-		return 1
 	}
 	return 0
 }
@@ -811,7 +803,6 @@ func (m *model) buildConfig() *Config {
 	// Collect all unique device infos referenced by mappings.
 	type devInfo struct {
 		name string
-		id   int
 	}
 	devMap := map[int]devInfo{}
 	for _, mp := range m.mappings {
@@ -819,26 +810,22 @@ func (m *model) buildConfig() *Config {
 			continue
 		}
 		var name string
-		var id int
-		// Prefer the tracked idxToName/idxToID maps (populated during device selection).
+		// Prefer the tracked idxToName map (populated during device selection).
 		if m.idxToName != nil {
 			if n, ok := m.idxToName[mp.Device]; ok {
 				name = n
-				id = m.idxToID[mp.Device]
 			}
 		}
 		// Fall back to loaded config.
 		if name == "" && m.loadedConfig != nil && mp.Device < len(m.loadedConfig.Devices) {
 			ds := m.loadedConfig.Devices[mp.Device]
 			name = ds.Name
-			id = ds.ID
 		}
 		// Last resort: current device.
 		if name == "" && m.dev != nil && mp.Device == m.deviceIdx {
 			name = m.dev.Info().Name
-			id = m.selectedID
 		}
-		devMap[mp.Device] = devInfo{name: name, id: id}
+		devMap[mp.Device] = devInfo{name: name}
 	}
 
 	// Build device list covering all indices up to the max.
@@ -851,7 +838,7 @@ func (m *model) buildConfig() *Config {
 	devices := make([]DeviceSpec, maxIdx+1)
 	for idx := range devices {
 		if di, ok := devMap[idx]; ok {
-			devices[idx] = DeviceSpec{Name: di.name, ID: di.id}
+			devices[idx] = DeviceSpec{Name: di.name}
 		}
 	}
 

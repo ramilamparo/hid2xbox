@@ -69,7 +69,7 @@ func runDebugLoop(ctx context.Context, devs []*joystick.Device, pad *x360.Gamepa
 						inMax = dInfo.AxisRanges[mp.Source].Max
 					}
 				}
-				mode := axisMode(mp.Mode, mp.Invert)
+				mode := axisMode(mp.Mode)
 
 				// Threshold path.
 				if _, isBtn := buttonMap[mp.Target]; isBtn && mp.Threshold > 0 {

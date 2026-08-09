@@ -204,19 +204,15 @@ func TestClampNorm_CenteredInvertedMax(t *testing.T) {
 // --- axisMode resolution ---
 
 func TestAxisMode_Normal(t *testing.T) {
-	if mode := axisMode("", false); mode != "normal" {
+	if mode := axisMode(""); mode != "normal" {
 		t.Errorf("empty mode → %q, want normal", mode)
 	}
 }
 
-func TestAxisMode_DeprecatedInvert(t *testing.T) {
-	if mode := axisMode("", true); mode != "inverted" {
-		t.Errorf("empty mode + invert → %q, want inverted", mode)
-	}
-}
+
 
 func TestAxisMode_ExplicitMode(t *testing.T) {
-	if mode := axisMode("centered", true); mode != "centered" {
+	if mode := axisMode("centered"); mode != "centered" {
 		t.Errorf("explicit centered → %q", mode)
 	}
 }

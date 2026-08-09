@@ -125,19 +125,13 @@ func RunBridge(ctx context.Context, cfgPath string, connectMu *sync.Mutex, debug
 }
 
 func findJoystick(ds DeviceSpec) (*joystick.Device, error) {
-	if ds.ID > 0 {
-		dev, err := joystick.Open(ds.ID)
-		if err == nil {
-			return dev, nil
-		}
-	}
 	all := joystick.Enumerate()
 	for _, info := range all {
 		if contains(info.Name, ds.Name) {
 			return joystick.Open(info.ID)
 		}
 	}
-	return nil, fmt.Errorf("no joystick matching %q (id=%d) found among %d devices", ds.Name, ds.ID, len(all))
+	return nil, fmt.Errorf("no joystick matching %q found among %d devices", ds.Name, len(all))
 }
 
 func contains(s, substr string) bool {
@@ -222,7 +216,7 @@ func tick(devs []*joystick.Device, pad *x360.Gamepad, mappings []Mapping, log *z
 				}
 			}
 
-			mode := axisMode(m.Mode, m.Invert)
+			mode := axisMode(m.Mode)
 
 			// Axis → button via threshold.
 			if _, isButton := buttonMap[m.Target]; isButton && m.Threshold > 0 {
@@ -289,14 +283,11 @@ func tick(devs []*joystick.Device, pad *x360.Gamepad, mappings []Mapping, log *z
 
 // ── Axis helpers ───────────────────────────────────────────────────────────
 
-func axisMode(mode string, deprecatedInvert bool) string {
-	if mode != "" {
-		return mode
+func axisMode(mode string) string {
+	if mode == "" {
+		return "normal"
 	}
-	if deprecatedInvert {
-		return "inverted"
-	}
-	return "normal"
+	return mode
 }
 
 func applyAxis(pad *x360.Gamepad, target string, raw, inMin, inMax uint32, mode string, deadzone float64, direction string) {

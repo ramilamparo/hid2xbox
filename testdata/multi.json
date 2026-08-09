@@ -1,0 +1,24 @@
+{
+  "devices": [
+    { "name": "PXN-V12lite" },
+    { "name": "Arduino Leonardo" }
+  ],
+  "mappings": [
+    {
+      "device": 0,
+      "type": "axis",
+      "source": 0,
+      "target": "right_stick_x",
+      "max": 65535,
+      "mode": "centered"
+    },
+    {
+      "device": 1,
+      "type": "axis",
+      "source": 3,
+      "target": "left_trigger",
+      "max": 65535,
+      "mode": "normal"
+    }
+  ]
+}

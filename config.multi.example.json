@@ -1,7 +1,7 @@
 {
   "devices": [
-    {"name": "Arduino Leonardo", "id": 3},
-    {"name": "USB Button Box", "id": 5}
+    {"name": "Arduino Leonardo"},
+    {"name": "USB Button Box"}
   ],
   "mappings": [
     {"device": 0, "type": "axis",  "source": 2, "target": "right_trigger", "mode": "normal"},

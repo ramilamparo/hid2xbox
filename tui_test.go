@@ -248,14 +248,14 @@ func TestUpsertMapping_Replace(t *testing.T) {
 			{Type: "axis", Source: 2, Target: "left_trigger", Min: 0, Max: 1023},
 			{Type: "button", Source: 0, Target: "a"},
 		},
-		curMapping: Mapping{Type: "axis", Source: 2, Target: "left_trigger", Min: 0, Max: 512, Invert: true},
+		curMapping: Mapping{Type: "axis", Source: 2, Target: "left_trigger", Min: 0, Max: 512, Mode: "inverted"},
 	}
 	m.upsertMapping()
 	if len(m.mappings) != 2 {
 		t.Fatalf("got %d mappings, want 2 (replaced, not appended)", len(m.mappings))
 	}
 	mp := m.mappings[0]
-	if mp.Target != "left_trigger" || mp.Max != 512 || !mp.Invert {
+	if mp.Target != "left_trigger" || mp.Max != 512 || mp.Mode != "inverted" {
 		t.Errorf("mapping not replaced: %+v", mp)
 	}
 	if m.mappings[1].Target != "a" {
@@ -359,8 +359,8 @@ func TestBuildConfig_MultiDevice(t *testing.T) {
 		},
 		loadedConfig: &Config{
 			Devices: []DeviceSpec{
-				{Name: "PXN-V12lite", ID: 4},
-				{Name: "Arduino Leonardo", ID: 3},
+				{Name: "PXN-V12lite"},
+				{Name: "Arduino Leonardo"},
 			},
 		},
 	}
@@ -409,10 +409,9 @@ func TestBuildConfig_NewDeviceNotInLoadedConfig(t *testing.T) {
 			{Device: 1, Type: "axis", Source: 3, Target: "left_trigger", Mode: "normal"},
 		},
 		loadedConfig: &Config{
-			Devices: []DeviceSpec{{Name: "PXN-V12lite", ID: 4}},
+			Devices: []DeviceSpec{{Name: "PXN-V12lite"}},
 		},
 		idxToName: map[int]string{0: "PXN-V12lite", 1: "Arduino Leonardo"},
-		idxToID:   map[int]int{0: 4, 1: 3},
 		deviceIdx: 0, // user was on PXN when they saved
 	}
 	cfg := m.buildConfig()
@@ -422,7 +421,7 @@ func TestBuildConfig_NewDeviceNotInLoadedConfig(t *testing.T) {
 	if len(cfg.Mappings) != 2 {
 		t.Fatalf("want 2 mappings, got %d", len(cfg.Mappings))
 	}
-	if cfg.Devices[1].Name == "" && cfg.Devices[1].ID == 0 {
+	if cfg.Devices[1].Name == ""  {
 		t.Error("device[1] is empty — Arduino device info lost")
 	}
 }
@@ -436,10 +435,9 @@ func TestMultiDeviceWorkflow_SwitchAndSave(t *testing.T) {
 			{Device: 1, Type: "axis", Source: 3, Target: "left_trigger", Max: 65535, Mode: "normal", Deadzone: 0.05},
 		},
 		loadedConfig: &Config{
-			Devices: []DeviceSpec{{Name: "PXN-V12lite", ID: 4}},
+			Devices: []DeviceSpec{{Name: "PXN-V12lite"}},
 		},
 		idxToName: map[int]string{0: "PXN-V12lite", 1: "Arduino Leonardo"},
-		idxToID:   map[int]int{0: 4, 1: 3},
 		deviceIdx: 1, // currently on Arduino after tab
 	}
 
@@ -449,10 +447,10 @@ func TestMultiDeviceWorkflow_SwitchAndSave(t *testing.T) {
 	if len(cfg.Devices) != 2 {
 		t.Fatalf("want 2 devices, got %d", len(cfg.Devices))
 	}
-	if cfg.Devices[0].Name != "PXN-V12lite" || cfg.Devices[0].ID != 4 {
+	if cfg.Devices[0].Name != "PXN-V12lite" {
 		t.Errorf("device[0] = %+v, want PXN-V12lite id=4", cfg.Devices[0])
 	}
-	if cfg.Devices[1].Name != "Arduino Leonardo" || cfg.Devices[1].ID != 3 {
+	if cfg.Devices[1].Name != "Arduino Leonardo" {
 		t.Errorf("device[1] = %+v, want Arduino Leonardo id=3", cfg.Devices[1])
 	}
 	if len(cfg.Mappings) != 2 {
@@ -477,13 +475,12 @@ func TestMultiDeviceWorkflow_OnlyNewDeviceMapped(t *testing.T) {
 			{Device: 1, Type: "axis", Source: 3, Target: "left_trigger", Max: 65535, Mode: "normal"},
 		},
 		loadedConfig: &Config{
-			Devices: []DeviceSpec{{Name: "PXN-V12lite", ID: 4}},
+			Devices: []DeviceSpec{{Name: "PXN-V12lite"}},
 			Mappings: []Mapping{
 				{Type: "axis", Source: 0, Target: "right_stick_x", Max: 65535, Mode: "centered"},
 			},
 		},
 		idxToName: map[int]string{0: "PXN-V12lite", 1: "Arduino Leonardo"},
-		idxToID:   map[int]int{0: 4, 1: 3},
 		deviceIdx: 1,
 	}
 
@@ -509,8 +506,9 @@ func TestMultiDevice_TabPreservesMappings(t *testing.T) {
 			{Device: 0, Type: "axis", Source: 0, Target: "right_stick_x", Mode: "centered"},
 		},
 		idxToName: map[int]string{0: "PXN-V12lite"},
-		idxToID:   map[int]int{0: 4},
 	}
+
+	_, _ = m.reviewUpdate("tab")
 
 	_, _ = m.reviewUpdate("tab")
 
@@ -532,8 +530,9 @@ func TestMultiDevice_EscFromReviewPreservesMappings(t *testing.T) {
 			{Device: 0, Type: "axis", Source: 0, Target: "right_stick_x", Mode: "centered"},
 		},
 		idxToName: map[int]string{0: "PXN-V12lite"},
-		idxToID:   map[int]int{0: 4},
 	}
+
+	// esc from review should go to select (preserving mappings).
 
 	// esc from review should go to select (preserving mappings).
 	_, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
@@ -556,20 +555,19 @@ func TestMultiDevice_NoLoadedConfig_UniqueIndices(t *testing.T) {
 			{ID: 4, Name: "PXN-V12lite", AxisCount: 6, ButtonCount: 32},
 		},
 		idxToName: map[int]string{},
-		idxToID:   map[int]int{},
 	}
+
+	// Select Arduino (simulate the effect without opening device).
 
 	// Select Arduino (simulate the effect without opening device).
 	m.deviceIdx = 0
 	m.idxToName[0] = "Arduino Leonardo"
-	m.idxToID[0] = 3
 	// Add Arduino mapping.
 	m.mappings = append(m.mappings, Mapping{Device: 0, Type: "axis", Source: 3, Target: "left_trigger"})
 
 	// Tab to switch device.
 	m.deviceIdx = len(m.idxToName) // simulate new index assignment
 	m.idxToName[1] = "PXN-V12lite"
-	m.idxToID[1] = 4
 	// Add PXN mapping.
 	m.mappings = append(m.mappings, Mapping{Device: 1, Type: "axis", Source: 0, Target: "right_stick_x"})
 

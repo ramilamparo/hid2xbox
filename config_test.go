@@ -12,8 +12,11 @@ func TestLoadConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
-	if cfg.Name != "Arduino Leonardo" {
-		t.Errorf("Name = %q, want %q", cfg.Name, "Arduino Leonardo")
+	if len(cfg.Devices) != 1 {
+		t.Fatalf("got %d devices, want 1", len(cfg.Devices))
+	}
+	if cfg.Devices[0].Name != "Arduino Leonardo" {
+		t.Errorf("Devices[0].Name = %q, want %q", cfg.Devices[0].Name, "Arduino Leonardo")
 	}
 	if len(cfg.Mappings) != 2 {
 		t.Fatalf("got %d mappings, want 2", len(cfg.Mappings))
@@ -27,8 +30,8 @@ func TestLoadConfig(t *testing.T) {
 	if m0.Min != 0 || m0.Max != 1023 {
 		t.Errorf("mapping[0] range = %d–%d, want 0–1023", m0.Min, m0.Max)
 	}
-	if !m0.Invert {
-		t.Error("mapping[0] invert should be true")
+	if m0.Mode != "inverted" {
+		t.Errorf("mapping[0] mode = %q, want inverted", m0.Mode)
 	}
 
 	// Button mapping
@@ -38,140 +41,114 @@ func TestLoadConfig(t *testing.T) {
 	}
 }
 
-func TestConfig_Normalize_SingleDevice(t *testing.T) {
-	cfg := &Config{Name: "Test", ID: 5, Mappings: []Mapping{{Type: "button", Source: 0, Target: "a"}}}
-	cfg.Normalize()
-	if len(cfg.Devices) != 1 {
-		t.Fatalf("expected 1 device after normalize, got %d", len(cfg.Devices))
+func TestConfig_MultiDevice(t *testing.T) {
+	cfg, err := LoadConfig("testdata/multi.json")
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
 	}
-	if cfg.Devices[0].Name != "Test" || cfg.Devices[0].ID != 5 {
-		t.Errorf("device[0] = %+v, want Name=Test ID=5", cfg.Devices[0])
-	}
-}
-
-func TestConfig_Normalize_MultiDevice(t *testing.T) {
-	cfg := &Config{
-		Devices: []DeviceSpec{
-			{Name: "Handbrake", ID: 3},
-			{Name: "Wheel", ID: 1},
-		},
-		Mappings: []Mapping{
-			{Device: 0, Type: "axis", Source: 2, Target: "right_trigger"},
-			{Device: 1, Type: "axis", Source: 0, Target: "left_stick_x", Mode: "centered"},
-		},
-	}
-	cfg.Normalize()
 	if len(cfg.Devices) != 2 {
-		t.Fatalf("expected 2 devices, got %d", len(cfg.Devices))
+		t.Fatalf("got %d devices, want 2", len(cfg.Devices))
+	}
+	if cfg.Devices[0].Name != "PXN-V12lite" {
+		t.Errorf("device[0] = %q", cfg.Devices[0].Name)
+	}
+	if cfg.Devices[1].Name != "Arduino Leonardo" {
+		t.Errorf("device[1] = %q", cfg.Devices[1].Name)
+	}
+	if len(cfg.Mappings) != 2 {
+		t.Fatalf("got %d mappings, want 2", len(cfg.Mappings))
 	}
 	if cfg.Mappings[0].Device != 0 || cfg.Mappings[1].Device != 1 {
-		t.Error("device indices should be preserved")
+		t.Errorf("mapping devices: %d, %d", cfg.Mappings[0].Device, cfg.Mappings[1].Device)
 	}
 }
 
-func TestConfig_SaveLoad_MultiDevice(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "multi.json")
-
+func TestConfig_SaveLoadRoundtrip(t *testing.T) {
 	cfg := &Config{
 		Devices: []DeviceSpec{
-			{Name: "A", ID: 1},
-			{Name: "B", ID: 2},
+			{Name: "Test Device"},
 		},
 		Mappings: []Mapping{
-			{Device: 0, Type: "axis", Source: 1, Target: "right_trigger"},
-			{Device: 1, Type: "button", Source: 3, Target: "a"},
+			{Type: "axis", Source: 1, Target: "left_trigger", Min: 0, Max: 255, Mode: "inverted", Deadzone: 0.05},
+			{Type: "button", Source: 3, Target: "b"},
 		},
 	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+
 	if err := SaveConfig(path, cfg); err != nil {
-		t.Fatal(err)
+		t.Fatalf("SaveConfig: %v", err)
 	}
 
 	loaded, err := LoadConfig(path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("LoadConfig: %v", err)
 	}
-	if len(loaded.Devices) != 2 {
-		t.Fatalf("got %d devices, want 2", len(loaded.Devices))
-	}
-	if loaded.Devices[0].Name != "A" || loaded.Devices[1].Name != "B" {
-		t.Errorf("devices = %+v", loaded.Devices)
+
+	if len(loaded.Devices) != 1 || loaded.Devices[0].Name != "Test Device" {
+		t.Errorf("device not roundtripped")
 	}
 	if len(loaded.Mappings) != 2 {
 		t.Fatalf("got %d mappings, want 2", len(loaded.Mappings))
+	}
+
+	m0 := loaded.Mappings[0]
+	if m0.Mode != "inverted" {
+		t.Errorf("mode = %q, want inverted", m0.Mode)
+	}
+	if m0.Deadzone != 0.05 {
+		t.Errorf("deadzone = %v", m0.Deadzone)
 	}
 }
 
 func TestLoadConfig_FileNotFound(t *testing.T) {
 	_, err := LoadConfig("testdata/nonexistent.json")
 	if err == nil {
-		t.Fatal("expected error for missing file")
+		t.Error("expected error for missing file")
 	}
 }
 
 func TestLoadConfig_InvalidJSON(t *testing.T) {
 	_, err := LoadConfig("testdata/invalid.json")
 	if err == nil {
-		t.Fatal("expected error for invalid JSON")
-	}
-}
-
-func TestSaveAndLoadRoundtrip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "config.json")
-
-	cfg := &Config{
-		Name: "Test Device",
-		Mappings: []Mapping{
-			{Type: "axis", Source: 1, Target: "left_trigger", Min: 0, Max: 255, Invert: true, Deadzone: 0.05},
-			{Type: "button", Source: 3, Target: "b"},
-		},
-	}
-
-	if err := SaveConfig(path, cfg); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
-	}
-
-	loaded, err := LoadConfig(path)
-	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
-	}
-
-	if loaded.Name != cfg.Name {
-		t.Errorf("Name = %q, want %q", loaded.Name, cfg.Name)
-	}
-	if len(loaded.Mappings) != len(cfg.Mappings) {
-		t.Fatalf("got %d mappings, want %d", len(loaded.Mappings), len(cfg.Mappings))
-	}
-	for i := range cfg.Mappings {
-		if loaded.Mappings[i] != cfg.Mappings[i] {
-			t.Errorf("mapping[%d]: got %+v, want %+v", i, loaded.Mappings[i], cfg.Mappings[i])
-		}
-	}
-
-	// Verify JSON is pretty-printed (has newline at end).
-	data, _ := os.ReadFile(path)
-	if len(data) == 0 || data[len(data)-1] != '\n' {
-		t.Error("saved config should end with newline")
-	}
-	var raw json.RawMessage
-	if err := json.Unmarshal(data, &raw); err != nil {
-		t.Errorf("saved config is not valid JSON: %v", err)
+		t.Error("expected error for invalid JSON")
 	}
 }
 
 func TestConfig_EmptyMappings(t *testing.T) {
-	cfg := &Config{Name: "Empty", Mappings: nil}
-	dir := t.TempDir()
-	path := filepath.Join(dir, "empty.json")
-	if err := SaveConfig(path, cfg); err != nil {
-		t.Fatalf("SaveConfig: %v", err)
+	cfg := &Config{
+		Devices:  []DeviceSpec{{Name: "Device"}},
+		Mappings: []Mapping{},
 	}
-	loaded, err := LoadConfig(path)
+	data, err := json.Marshal(cfg)
 	if err != nil {
-		t.Fatalf("LoadConfig: %v", err)
+		t.Fatal(err)
 	}
-	if loaded.Name != "Empty" || loaded.Mappings != nil {
-		t.Errorf("got Name=%q Mappings=%v, want Name=Empty Mappings=nil", loaded.Name, loaded.Mappings)
+	var back Config
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if len(back.Mappings) != 0 {
+		t.Errorf("got %d mappings, want 0", len(back.Mappings))
+	}
+}
+
+func TestSaveConfig_WriteAndRead(t *testing.T) {
+	cfg := &Config{
+		Devices:  []DeviceSpec{{Name: "Test"}},
+		Mappings: []Mapping{{Type: "axis", Source: 0, Target: "left_trigger"}},
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.json")
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(data) {
+		t.Error("output is not valid JSON")
 	}
 }

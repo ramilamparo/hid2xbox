@@ -71,8 +71,8 @@ Press `Ctrl+C` to stop. The virtual Xbox controller disconnects cleanly.
 ```json
 {
   "devices": [
-    { "name": "PXN-V12lite", "id": 4 },
-    { "name": "Arduino Leonardo", "id": 3 }
+    { "name": "PXN-V12lite" },
+    { "name": "Arduino Leonardo" }
   ],
   "mappings": [
     {
@@ -119,7 +119,6 @@ Press `Ctrl+C` to stop. The virtual Xbox controller disconnects cleanly.
 | `direction` | Stick half-range: `"both"` (default), `"positive"` (0→+1), `"negative"` (0→-1) |
 | `threshold` | Axis→button: value 0.0–1.0 where axis triggers a button press |
 | `deadzone` | Fraction (0.0–1.0) ignored near center/zero |
-| `invert` | **Deprecated** — use `mode: "inverted"` instead |
 
 **Axis targets:** `left_trigger`, `right_trigger`, `left_stick_x`, `left_stick_y`, `right_stick_x`, `right_stick_y`
 
