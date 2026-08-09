@@ -1,0 +1,14 @@
+{
+  "name": "Arduino Leonardo",
+  "mappings": [
+    {
+      "type": "axis",
+      "source": 2,
+      "target": "right_trigger",
+      "min": 0,
+      "max": 1023,
+      "invert": false,
+      "deadzone": 0.05
+    }
+  ]
+}
