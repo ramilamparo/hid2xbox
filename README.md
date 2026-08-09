@@ -1,8 +1,8 @@
 # hid2xbox
 
-Map any generic HID gamepad or handbrake to a virtual Xbox 360 controller on Windows.
+Map any generic HID gamepad, handbrake, or direct-drive wheel to a virtual Xbox 360 controller on Windows.
 
-Use case: your Arduino Leonardo handbrake is detected by Windows but games don't see it because they expect XInput. `hid2xbox` reads the raw joystick and feeds it into a virtual Xbox 360 controller via [ViGEmBus](https://github.com/nefarius/ViGEmBus).
+Use case: your Arduino Leonardo handbrake + PXN direct-drive wheel are detected by Windows but games don't see them because they expect XInput. `hid2xbox` reads raw joystick inputs and feeds them into a virtual Xbox 360 controller via [ViGEmBus](https://github.com/nefarius/ViGEmBus).
 
 ## Prerequisites
 
@@ -22,14 +22,13 @@ git clone https://github.com/ramilamparo/hid2xbox.git
 cd hid2xbox
 go build -o hid2xbox.exe .
 
-# Install to %GOPATH%\bin (requires Go 1.22+)
+# Install to %GOPATH%\bin (requires Go 1.23+)
 go install github.com/ramilamparo/hid2xbox@latest
 ```
 
-
 ## Quick Start
 
-### 1. Discover your device
+### 1. Configure your devices
 
 ```powershell
 .\hid2xbox.exe --setup
@@ -37,10 +36,11 @@ go install github.com/ramilamparo/hid2xbox@latest
 
 This launches an interactive TUI:
 
-1. **Select** your controller from the list (e.g. "Arduino Leonardo")
-2. **Discover** — pull your handbrake or press buttons to see which inputs move
-3. **Map** each input to an Xbox target (e.g. Axis 2 → right_trigger)
-4. **Save** to `config.json`
+1. **Select** a controller from the list (e.g. "PXN-V12lite")
+2. **Discover** — move axes or press buttons to see which inputs respond
+3. **Map** each input to an Xbox target
+4. Press **`tab`** to switch devices and map additional controllers
+5. **Save** — all devices written to `config.json`
 
 ### 2. Run the bridge
 
@@ -50,27 +50,58 @@ This launches an interactive TUI:
 
 Press `Ctrl+C` to stop. The virtual Xbox controller disconnects cleanly.
 
+**Multiple controllers feeding the same virtual gamepad:**
+
+```powershell
+.\hid2xbox.exe --config config_pxn.json --config config_arduino.json
+```
+
+**Live debug view:**
+
+```powershell
+.\hid2xbox.exe --debug
+# or with file logging:
+.\hid2xbox.exe --debug-log .\debug.jsonl
+```
+
 ## Configuration
 
 `config.json` is created by `--setup` or written by hand:
 
 ```json
 {
-  "name": "Arduino Leonardo",
+  "devices": [
+    { "name": "PXN-V12lite", "id": 4 },
+    { "name": "Arduino Leonardo", "id": 3 }
+  ],
   "mappings": [
     {
+      "device": 0,
       "type": "axis",
-      "source": 2,
-      "target": "right_trigger",
-      "min": 0,
-      "max": 1023,
-      "invert": false,
+      "source": 0,
+      "target": "right_stick_x",
+      "max": 65535,
+      "mode": "centered",
+      "deadzone": 0.05,
+      "direction": "both"
+    },
+    {
+      "device": 0,
+      "type": "axis",
+      "source": 3,
+      "target": "left_trigger",
+      "max": 65535,
+      "mode": "normal",
       "deadzone": 0.05
     },
     {
-      "type": "button",
-      "source": 0,
-      "target": "a"
+      "device": 1,
+      "type": "axis",
+      "source": 3,
+      "target": "right_trigger",
+      "max": 65535,
+      "mode": "normal",
+      "deadzone": 0.05
     }
   ]
 }
@@ -78,10 +109,17 @@ Press `Ctrl+C` to stop. The virtual Xbox controller disconnects cleanly.
 
 | Field | Description |
 |---|---|
-| `name` | Substring match against the Windows joystick name |
+| `devices` | Array of physical joysticks. Each has a `name` (substring match) and optional `id` |
+| `device` | Index into `devices` — which physical controller this mapping belongs to |
 | `type` | `"axis"` or `"button"` |
-| `source` | Axis index (0–5) or button bit index |
+| `source` | Axis index (0-based) or button bit index |
 | `target` | Xbox output (see below) |
+| `min` / `max` | Input range override for axis mappings (default: hardware range) |
+| `mode` | Axis interpretation:<br>`"normal"` — 0→max maps to 0→1 (handbrake, throttle)<br>`"inverted"` — 0→max maps to 1→0<br>`"centered"` — min←mid→max maps to -1←0→+1 (steering wheel)<br>`"centered_inverted"` — min←mid→max maps to +1←0→-1 |
+| `direction` | Stick half-range: `"both"` (default), `"positive"` (0→+1), `"negative"` (0→-1) |
+| `threshold` | Axis→button: value 0.0–1.0 where axis triggers a button press |
+| `deadzone` | Fraction (0.0–1.0) ignored near center/zero |
+| `invert` | **Deprecated** — use `mode: "inverted"` instead |
 
 **Axis targets:** `left_trigger`, `right_trigger`, `left_stick_x`, `left_stick_y`, `right_stick_x`, `right_stick_y`
 
@@ -91,23 +129,22 @@ Press `Ctrl+C` to stop. The virtual Xbox controller disconnects cleanly.
 
 | Flag | Description |
 |---|---|
-| `--config <path>` | Path to config file (default: `config.json`) |
-| `--setup` | Launch the interactive TUI to create a config |
+| `--config <path>` | Path to config file (repeatable for multi-controller) |
+| `--setup` | Interactive TUI to discover inputs and create a config |
+| `--debug` | Live virtual Xbox controller state display |
+| `--debug-log <path>` | Write structured JSONL debug logs to file |
 
 ## Testing
 
 ```powershell
-# All tests (needs Windows + attached joysticks for TUI tests)
 go test -v -count=1 ./...
-
-# Portable tests only (cross-platform, no hardware needed)
-go test -v -count=1 -run "Test(Config|Normalize|Norm|Button|Contain)" ./...
 ```
 
 ## How It Works
 
 ```
-Arduino Leonardo ──→ joyGetPosEx (Winmm.dll) ──→ hid2xbox ──→ ViGEmBus ──→ Virtual Xbox 360
+PXN-V12lite ──→ joyGetPosEx (Winmm.dll) ──╮
+Arduino Leonardo ──→ joyGetPosEx ──────────╂──→ hid2xbox ──→ ViGEmBus ──→ Virtual Xbox 360
 ```
 
 ## License
