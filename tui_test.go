@@ -225,3 +225,72 @@ func TestTUI_ReviewScreen_Save(t *testing.T) {
 		t.Error("'s' should set saved flag")
 	}
 }
+
+func TestUpsertMapping_Append(t *testing.T) {
+	m := &model{
+		mappings:    []Mapping{{Type: "button", Source: 0, Target: "a"}},
+		curMapping:  Mapping{Type: "axis", Source: 1, Target: "right_trigger"},
+	}
+	m.upsertMapping()
+	if len(m.mappings) != 2 {
+		t.Fatalf("got %d mappings, want 2 (appended)", len(m.mappings))
+	}
+	if m.mappings[1].Target != "right_trigger" {
+		t.Errorf("second mapping target = %q, want right_trigger", m.mappings[1].Target)
+	}
+}
+
+func TestUpsertMapping_Replace(t *testing.T) {
+	m := &model{
+		mappings: []Mapping{
+			{Type: "axis", Source: 2, Target: "left_trigger", Min: 0, Max: 1023},
+			{Type: "button", Source: 0, Target: "a"},
+		},
+		curMapping: Mapping{Type: "axis", Source: 2, Target: "right_trigger", Min: 0, Max: 512, Invert: true},
+	}
+	m.upsertMapping()
+	if len(m.mappings) != 2 {
+		t.Fatalf("got %d mappings, want 2 (replaced, not appended)", len(m.mappings))
+	}
+	mp := m.mappings[0]
+	if mp.Target != "right_trigger" || mp.Max != 512 || !mp.Invert {
+		t.Errorf("mapping not replaced: %+v", mp)
+	}
+	if m.mappings[1].Target != "a" {
+		t.Error("second mapping should be unchanged")
+	}
+}
+
+func TestUpsertMapping_TypeMismatch(t *testing.T) {
+	m := &model{
+		mappings:   []Mapping{{Type: "axis", Source: 1, Target: "left_trigger"}},
+		curMapping: Mapping{Type: "button", Source: 1, Target: "a"},
+	}
+	m.upsertMapping()
+	if len(m.mappings) != 2 {
+		t.Fatalf("got %d mappings, want 2 (different types = no conflict)", len(m.mappings))
+	}
+}
+
+func TestConfigFlag_Multiple(t *testing.T) {
+	var c configsFlag
+	if err := c.Set("a.json"); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Set("b.json"); err != nil {
+		t.Fatal(err)
+	}
+	if len(c) != 2 || c[0] != "a.json" || c[1] != "b.json" {
+		t.Errorf("got %v, want [a.json b.json]", c)
+	}
+	if c.String() != "a.json, b.json" {
+		t.Errorf("String() = %q, want %q", c.String(), "a.json, b.json")
+	}
+}
+
+func TestConfigFlag_Default(t *testing.T) {
+	var c configsFlag
+	if len(c) != 0 {
+		t.Errorf("empty configsFlag should be len 0, got %d", len(c))
+	}
+}

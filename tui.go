@@ -414,11 +414,22 @@ func (m *model) mapUpdate(key string) (tea.Model, tea.Cmd) {
 		m.curMapping.Invert = !m.curMapping.Invert
 	case "enter":
 		m.curMapping.Target = targets[m.targetCursor]
-		m.mappings = append(m.mappings, m.curMapping)
+		m.upsertMapping()
 		m.screen = screenReview
 		return m, nil
 	}
 	return m, nil
+}
+
+// upsertMapping replaces an existing mapping for the same (type, source) or appends.
+func (m *model) upsertMapping() {
+	for i, existing := range m.mappings {
+		if existing.Type == m.curMapping.Type && existing.Source == m.curMapping.Source {
+			m.mappings[i] = m.curMapping
+			return
+		}
+	}
+	m.mappings = append(m.mappings, m.curMapping)
 }
 
 func (m *model) mapView() string {
