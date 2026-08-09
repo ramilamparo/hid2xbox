@@ -141,9 +141,14 @@ go test -v -count=1 ./...
 
 ## How It Works
 
-```
-PXN-V12lite ──→ joyGetPosEx (Winmm.dll) ──╮
-Arduino Leonardo ──→ joyGetPosEx ──────────╂──→ hid2xbox ──→ ViGEmBus ──→ Virtual Xbox 360
+```mermaid
+flowchart LR
+    A[PXN-V12lite] --> B[joyGetPosEx]
+    C[Arduino Leonardo] --> D[joyGetPosEx]
+    B --> E[hid2xbox]
+    D --> E
+    E --> F[ViGEmBus]
+    F --> G[Virtual Xbox 360]
 ```
 
 ## License
