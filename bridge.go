@@ -39,11 +39,6 @@ func RunBridge(ctx context.Context, cfgPath string) error {
 	}()
 
 	fmt.Println("Virtual Xbox 360 controller connected. Press Ctrl+C to stop.")
-	fmt.Println()
-	fmt.Println("WARNING: The physical device is still visible to games.")
-	fmt.Println("Install HidHide (https://github.com/nefarius/HidHide) and whitelist")
-	fmt.Println("hid2xbox.exe to prevent double-input. Without it, games may see both")
-	fmt.Println("the Arduino AND the virtual Xbox controller.")
 
 
 	return pollLoop(ctx, dev, pad, cfg.Mappings)
